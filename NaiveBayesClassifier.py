@@ -1,25 +1,26 @@
 # -*- coding: utf-8 -*-
-import os, sys, time, math, string
+import os, sys, time, math, string, operator
 
 # ======================================================================
 # Main Method
 # ======================================================================
 
 def main():
-    trainingFileName = "training.txt"
-    testingFileName = "testing.txt"
+    fileArgs = sys.argv
+    trainingFileName = fileArgs[1]
+    testingFileName = fileArgs[2]
 
     documentClassifier = NaiveBayesClassifier()
 
     trainStart = time.time()
     documentClassifier.trainWithDataSet(trainingFileName)
     trainEnd = time.time()
-    trainTime = str(trainEnd - trainStart) + "seconds (training)"
+    trainTime = str(trainEnd - trainStart) + " seconds (training)"
 
     labelStart = time.time()
     documentClassifier.createModel()
     labelEnd = time.time()
-    labelTime = str(labelEnd - labelStart) + "seconds (labeling)"
+    labelTime = str(labelEnd - labelStart) + " seconds (labeling)"
 
     trainingAccuracy = documentClassifier.classifyDataSet(trainingFileName, "training")
     testingAccuracy = documentClassifier.classifyDataSet(testingFileName, "testing")
@@ -44,6 +45,10 @@ class NaiveBayesClassifier:
         self.condProbabilities = {}
         self.numOfDocumentsWordAppearsIn = {}
 
+        self.classifiedDocumentsBigram = {}
+        self.condProbabilitiesBigram = {}
+        self.numOfDocumentsBigramAppearsIn = {}
+
         for i in range(16):
             self.authorProbabilities.append(0.0)
 
@@ -58,7 +63,8 @@ class NaiveBayesClassifier:
         lines = file.read().split('\n')
 
         self.initializeCondProbabilityMap(lines)
-        
+        # self.initializeBigramCondProbabilityMap(lines)
+
         # Populate Document Word Frequency Maps
         documentNumber = 0
         for line in lines:
@@ -71,15 +77,24 @@ class NaiveBayesClassifier:
                 self.authors[int(author)].append(documentNumber)
 
                 self.classifiedDocuments[documentNumber] = {}
+                self.classifiedDocumentsBigram[documentNumber] = {}
 
                 words = self.tokenize(content)
+                wordsBigram = self.tokenizeBigram(content)
+
                 self.populateWordFrequencyMap(words, self.classifiedDocuments[documentNumber])
-                
+                # self.populateWordFrequencyMap(wordsBigram, self.classifiedDocumentsBigram[documentNumber])
+
                 for word in self.classifiedDocuments[documentNumber]:
                     if word in self.numOfDocumentsWordAppearsIn:
                         self.numOfDocumentsWordAppearsIn[word] += 1
                     else:
                         self.numOfDocumentsWordAppearsIn[word] = 1
+                # for bigram in self.classifiedDocumentsBigram[documentNumber]:
+                #     if bigram in self.numOfDocumentsBigramAppearsIn:
+                #         self.numOfDocumentsBigramAppearsIn[bigram] += 1
+                #     else:
+                #         self.numOfDocumentsBigramAppearsIn[bigram] = 1
 
                 self.documentLengths[documentNumber] = len(words)
                 documentNumber += 1
@@ -92,15 +107,15 @@ class NaiveBayesClassifier:
         while(authorIndex < len(self.authorProbabilities)):
             self.authorProbabilities[authorIndex] = self.probability(authorIndex)
             authorIndex += 1
-        
+
         # Store total words for author
-        # for authorIndex in range(1, len(self.authorProbabilities)):
-        #     totalWords = 0
-        #     for word in self.condProbabilities:
-        #         for documentNumber in self.authors[int(authorIndex)]:
-        #             if word in self.classifiedDocuments[documentNumber]:
-        #                totalWords += self.classifiedDocuments[documentNumber][word]
-        #     self.authorTotalWords[authorIndex] = totalWords
+        for authorIndex in range(1, len(self.authorProbabilities)):
+            totalWords = 0
+            for word in self.condProbabilities:
+                for documentNumber in self.authors[int(authorIndex)]:
+                    if word in self.classifiedDocuments[documentNumber]:
+                       totalWords += self.classifiedDocuments[documentNumber][word]
+            self.authorTotalWords[authorIndex] = totalWords
 
         # Calculate and store conditional probabilities
         for word in self.condProbabilities:
@@ -110,11 +125,18 @@ class NaiveBayesClassifier:
                 if condProb != 0:
                     self.condProbabilities[word][authorIndex] = condProb
                 authorIndex += 1
-        
-        print("Modeling Done.")
-        
+
+        # Calculate and store bigram conditional probabilities
+        # for bigram in self.condProbabilitiesBigram:
+        #     authorIndex = 1
+        #     while(authorIndex < len(self.authorProbabilities)):
+        #         condProb = self.condProbabilityBigram(bigram, authorIndex)
+        #         if condProb != 0:
+        #             self.condProbabilitiesBigram[bigram][authorIndex] = condProb
+        #         authorIndex += 1
+        #print(self.condProbabilitiesBigram)
+
     def classifyDataSet(self, fileName, dataSetType):
-        print("Classifying Data Set...")
 
         file = open(fileName, "r", encoding = "ISO-8859-1")
         accuracy = 0.0
@@ -124,12 +146,14 @@ class NaiveBayesClassifier:
 
         for line in lines:
             line = line.split(" ,")
-            
+
             if len(line) == 2:
                 content = line[0]
                 author = line[1]
 
                 words = self.tokenize(content)
+                # bigrams = self.tokenizeBigram(content)
+
                 likelyClassification = self.classifyDocument(words)
                 if(dataSetType == "testing"):
                     print(likelyClassification)
@@ -139,29 +163,43 @@ class NaiveBayesClassifier:
                 documentNumber += 1
 
         file.close()
-        
+
         return str(accuracy / len(self.classifiedDocuments)) + " (" + dataSetType + ")"
 
 # ======================================================================
 # Helper Functions
 # ======================================================================
-  
+
     def classifyDocument(self, words):
         maxProbability = -1000000000
         likelyClassification = 0
 
         uniqueWords = {}
+        # uniqueBigrams = {}
         tfIDFUniqueWords = {}
         self.populateWordFrequencyMap(words, uniqueWords)
+        # self.populateWordFrequencyMap(bigrams, uniqueBigrams)
         self.populateTFIDFMap(len(words), tfIDFUniqueWords, uniqueWords)
         authorIndex = 1
 
         while(authorIndex < len(self.authors)):
             if len(self.authors[authorIndex]) > 0:
-                currProbability = 1                
-                for word in tfIDFUniqueWords:
-                    if tfIDFUniqueWords[word] > 0 and word in self.condProbabilities:
-                          currProbability += (self.condProbabilities[word][authorIndex])
+                currProbability = 1
+
+                topTwentyPercent = len(tfIDFUniqueWords)/3
+                topTwentyPercentWords = sorted(tfIDFUniqueWords.items(), key=operator.itemgetter(1), reverse=True)
+                count = 0
+                for word in topTwentyPercentWords:
+                    if(count > topTwentyPercent):
+                        break
+                    if word[0] in self.condProbabilities:
+                        currProbability += self.condProbabilities[word[0]][authorIndex]
+                    else:
+                        currProbability += math.log(1.0/len(self.condProbabilities), 2)
+                    count+=1
+                # for bigram in uniqueBigrams:
+                #     if bigram in self.condProbabilitiesBigram:
+                #         currProbability += self.condProbabilitiesBigram[bigram][authorIndex]
                 currProbability += self.authorProbabilities[authorIndex]
                 if currProbability > maxProbability:
                     maxProbability = currProbability
@@ -174,29 +212,38 @@ class NaiveBayesClassifier:
         probability = 1
 
         for documentNumber in self.authors[int(author)]:
-            print("==================")
-            print(self.classifiedDocuments[documentNumber])
-
             if word in self.classifiedDocuments[documentNumber]:
-                probability += self.classifiedDocuments[documentNumber][word] 
-        
-        probability += 1
+                probability += self.classifiedDocuments[documentNumber][word]
 
         totalWords = self.authorTotalWords[author]
 
         probability = math.log(probability, 2) - math.log((totalWords + len(self.condProbabilities)), 2)
-        
-        # return probability
 
+        return probability
+
+        # probability = 0
         # for documentNumber in self.authors[int(author)]:
         #     if word in self.classifiedDocuments[documentNumber]:
         #         probability += float(self.classifiedDocuments[documentNumber][word])/self.documentLengths[documentNumber]
         #     else:
         #         probability += 1.0/len(self.classifiedDocuments[documentNumber])
-
+        #
         #     probability /= float(len(self.authors[int(author)]))
-   
+        #
         # return math.log(probability, 2)
+
+    def condProbabilityBigram(self, bigram, author):
+        probability = 1
+
+        for documentNumber in self.authors[int(author)]:
+            if bigram in self.classifiedDocumentsBigram[documentNumber]:
+                probability += self.classifiedDocumentsBigram[documentNumber][bigram]
+
+        totalWords = self.authorTotalWords[author]/2.0
+
+        probability = math.log(probability, 2) - math.log((totalWords + len(self.condProbabilitiesBigram)), 2)
+
+        return probability
 
     def probability(self, author):
         return math.log((len(self.authors[author])*1.0)/len(self.classifiedDocuments), 2)
@@ -204,7 +251,7 @@ class NaiveBayesClassifier:
     def populateWordFrequencyMap(self, words, wordFrequencyMap):
         if words is not None:
             for word in words:
-                if word in wordFrequencyMap: 
+                if word in wordFrequencyMap:
                     wordFrequencyMap[word] = wordFrequencyMap[word] + 1
                 else:
                     wordFrequencyMap[word] = 1
@@ -214,18 +261,16 @@ class NaiveBayesClassifier:
 
         for word in wordFrequencyMap:
             tf = wordFrequencyMap[word]/wordsLength
-            
+
             idf = len(self.classifiedDocuments)
 
-            count = self.numOfDocumentsWordAppearsIn[word]
+            count = 1 + self.numOfDocumentsWordAppearsIn[word]
 
-            if(count == 0):
-                count = 1
             idf /= count
 
-            tfIDFMap[word] = tf*(1 + math.log(idf, 10))
+            tfIDFMap[word] = tf*math.log(idf, 10)
 
-    def initializeCondProboabilityMap(self, lines):
+    def initializeCondProbabilityMap(self, lines):
         for line in lines:
             line = line.split(",")
 
@@ -239,12 +284,41 @@ class NaiveBayesClassifier:
                         authorsList = []
                         for i in range(16):
                             authorsList.append(0.0)
-                            self.condProbabilities[word] = authorsList
+                        self.condProbabilities[word] = authorsList
+    def initializeBigramCondProbabilityMap(self, lines):
+        for line in lines:
+            line = line.split(",")
+
+            if len(line) == 2:
+                content = line[0]
+
+                bigrams = self.tokenizeBigram(content)
+
+                for bigram in bigrams:
+                    if bigram not in self.condProbabilitiesBigram:
+                        authorsList = []
+                        for i in range(16):
+                            authorsList.append(0.0)
+                        self.condProbabilitiesBigram[bigram] = authorsList
 
     def tokenize(self, line):
         if line is not None:
             # Split by whitespace and normalize
             words = line.lower().split()
+            return words
+        else:
+            return None
+
+    def tokenizeBigram(self, line):
+        if line is not None:
+            # Split by every two whitespaces
+            span = 2
+            ogWords = line.lower().split()
+
+            words = ogWords
+            words = [" ".join(words[i:i+span]) for i in range(0, len(words), span)]
+
+            words += [" ".join(ogWords[i:i+span]) for i in range(1, len(ogWords))]
             return words
         else:
             return None
